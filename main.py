@@ -1,6 +1,4 @@
-from typing import Any, Optional
-
-import requests
+from typing import Any, Optional, List
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3 import util
@@ -8,6 +6,12 @@ from requests import Session
 from pydantic import BaseModel
 import json
 import os
+from json import JSONEncoder
+
+
+class MyEncoder(JSONEncoder):
+    def default(self, o):
+        return o.__dict__
 
 
 class GeoCoordinates(BaseModel):
@@ -45,8 +49,7 @@ def get_http_session(
         user_agent=None,
 ) -> Session:
     """
-    Build request retry policy.
-    wait bydefault to 5+ mins in 5 retries unless these settings overriden by client.
+    Build request retry policy. Wait by default to 5+ minutes in 5 retries unless these settings overriden by client.
     """
     session = session or Session()
     retry = util.Retry(
@@ -73,6 +76,7 @@ def load_env():
     else:
         GOOGLE_API_KEY = api_key
 
+
 def get_twenty_four_hour_event():
     load_env()
     session = get_http_session()
@@ -80,9 +84,8 @@ def get_twenty_four_hour_event():
     if response.status_code != 200:
         return None
     event_entries = get_events_entries(response.text)
-    process_event_entries(event_entries)
-
-
+    events = process_event_entries(event_entries)
+    save_events_to_json(events)
 
 
 def get_events_entries(html: str):
@@ -91,7 +94,7 @@ def get_events_entries(html: str):
     return events
 
 
-def process_event_entries(events: list):
+def process_event_entries(events: list) -> List[Event]:
     entries_data = []
     for event in events:
         row = event.select('.row')
@@ -100,6 +103,9 @@ def process_event_entries(events: list):
         url_path = cols[0].find('a', href=True).attrs['href']
         url = f'{DOMAIN}{url_path}'
         event_type = get_event_type(url_path)
+        # rally events do not have a defined location so, just ignore them
+        if event_type == 'rally':
+            continue
         event_date = get_event_date(cols[1].text.strip())
         name = cols[2].text.strip()
         _event = Event(url=url,
@@ -107,12 +113,12 @@ def process_event_entries(events: list):
                        dateInfo=event_date,
                        eventType=event_type,
                        eventCourse=event_course)
-        _event = get_event_location_data(_event)
+        _event = update_event_with_location_data(_event)
         entries_data.append(_event)
     return entries_data
 
 
-def get_event_location_data(event: Event) -> Event:
+def update_event_with_location_data(event: Event) -> Event | None:
     response_json = None
     with get_http_session() as session:
         headers = {
@@ -120,12 +126,10 @@ def get_event_location_data(event: Event) -> Event:
             'X-Goog-Api-Key': GOOGLE_API_KEY,
             'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location'
         }
-        session.headers.update(headers)
         response = session.post(PLACES_NEW_API_URL,
+                                headers=headers,
                                 data=json.dumps({'textQuery': event.eventCourse}))
-        if response.status_code != 200:
-            raise Exception(f'')
-        else:
+        if response.status_code == 200:
             response_json = response.json()
     if 'places' in response_json:
         place = response_json['places'][0]
@@ -138,20 +142,13 @@ def get_event_location_data(event: Event) -> Event:
                                   address=address,
                                   name=name)
         return event
-    else:
-        return None
-
-
-
+    return None
 
 
 def get_event_type(url: str) -> str:
-    if 'race' in url:
-        return 'race'
-    elif 'rally' in url:
-        return 'rally'
-    else:
-        return ''
+    race = 'race'
+    rally = 'rally'
+    return race if race in url else rally if rally in url else ''
 
 
 def get_event_date(text: Any):
@@ -160,6 +157,10 @@ def get_event_date(text: Any):
     return text
 
 
+def save_events_to_json(events: List[Event]):
+    with open('events.json', 'wt') as f:
+        json_data = json.dumps(events, cls=MyEncoder)
+        f.write(json_data)
 
 
 get_twenty_four_hour_event()
