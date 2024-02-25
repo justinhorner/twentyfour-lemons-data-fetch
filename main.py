@@ -108,6 +108,9 @@ def process_event_entries(events: list) -> List[Event]:
             continue
         event_date = get_event_date(cols[1].text.strip())
         name = cols[2].text.strip()
+        # don't include duplicates
+        if any(e.name == name for e in entries_data):
+            continue
         _event = Event(url=url,
                        name=name,
                        dateInfo=event_date,
