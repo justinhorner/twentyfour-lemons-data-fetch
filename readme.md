@@ -4,7 +4,8 @@ A small python script to fetch 24 Hour of Lemons Race details.  This was created
 
 ## Notes
 
-- The program requires a [Google Places (New) API key](https://developers.google.com/maps/documentation/places/web-service/text-search) in order to fetch the geolocation data for variouis events. 
+- The program requires a [Google Places (New) API key](https://developers.google.com/maps/documentation/places/web-service/text-search) in order to fetch the geolocation data for various events.
+  - Set the value for `GOOGLE_API_KEY` as an [environment variable](https://docs.python.org/3/using/cmdline.html#environment-variables)
 - The program generates a json file of the various races and outputs data in to the following format: 
   - ```
       {
